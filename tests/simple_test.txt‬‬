@@ -1,0 +1,14 @@
+int i = 3;
+int j = 5; 
+if (i<j) {
+	print "this";
+}
+bool b = true;
+while (b){
+	print "this too";
+	b = j < i;
+}
+NIS n = 10 NIS;
+AGORA a = 200 AGORA;
+i=n/a;
+print i;
