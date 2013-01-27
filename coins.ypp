@@ -212,7 +212,7 @@ M		:
 N		:
 		/* empty */	{
 						$$ = next();
-						emit("goto ");
+						emit("goto");
 					}		 		
 %%
 
