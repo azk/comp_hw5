@@ -1,22 +1,18 @@
 %{
-    #include <iostream>
-    #include <ostringstream>
-    #include <cstring>
-    #include <vector>
-    #include <map>
+    #include <sstream>
+
+    #include <vector>    
     
     #include "shared.h"
     #include "bp.hpp"
+    #include "symbol_table.h"                  
 
 	#define EMIT_GOTO emit("goto ")
 
     #define YYDEBUG 1
     
     using namespace std;
-    
-    typedef map<string,int> SymbolTable;
-    typedef list<SymbolTable> ScopedST;
-    
+       
     extern int yylex();
     
     extern int yylineno;
@@ -37,8 +33,9 @@
     	DIV_A
     } ArithmeticOp;
     
-    string arithmeticOp(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, ArithmeticOp op );
+    void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, ArithmeticOp op );
     void emitRelOperation(ExpTraits& exp1, ExpTraits& exp2, RelOp relOp);
+    string getExpRep(ExpTraits& expR);
         
     int getMemoryLocation();
 %}
@@ -94,21 +91,22 @@ Statements	: Statements Statement {}
 			| Statement {}
 			;
 			
-Statement	: LC Statements RC {
-									$$.nextList = $2.nextList;
+Statement	: LC {addSymbolScope();} Statements RC {
+									$$.nextList = $3.nextList;
+									removeSymbolScope();
 								}	/* { ... } */
 			| Type ID SC {							
-							addToSymbolTable(ID,Type,getMemoryLocation());
+							addToSymbolTable($2.idName,$1,getMemoryLocation());
 						 }	   	/* int x; */
 						 
 			| Type ID ASSIGN Exp SC {
-										int offset = addToSymbolTable(ID,Type,getMemoryLocation());					
-										ostringsteam oss;
+										int offset = addToSymbolTable($2.idName,$1,getMemoryLocation());					
+										ostringstream oss;
 										oss << "s[" << offset << "]=" << getExpRep($4); 
 										emit(oss.str());
 									} /* int x = a+b; */
 			| ID ASSIGN Exp SC { 
-									int offset = getSymbolOffset($1);
+									int offset = getSymbolOffset($1.idName);
 									
 									ostringstream oss;
 									oss << "s[" << offset << "]=" << getExpRep($3); 
@@ -116,7 +114,7 @@ Statement	: LC Statements RC {
 								}	   /* x = a+b; */
 			| PRINT ID SC   { 
 								ostringstream oss;
-								oss << print s[" << getSymbolOffset($2) << "]";
+								oss << "print s[" << getSymbolOffset($2.idName) << "]";
 								emit(oss.str());
 							}   	   /* print x; */
 			| PRINT STRING SC 	{
@@ -126,37 +124,46 @@ Statement	: LC Statements RC {
 								}	   /* print "bla bla"; */
 			| INPUT ID SC 	{
 								ostringstream oss;
-								oss << input s[" << getSymbolOffset($2) << "]";
+								oss << "input s[" << getSymbolOffset($2.idName) << "]";
 								emit(oss.str());			
 							}  	   /* input x; */
 			
 			
-			| IF LP Exp RP M Statement %prec IF {
-													bp($3.trueList,$5.memoryLocation);
-													$$.nextList = merge($3.falseList,$6.nextList);													
+			| IF ScopeIf LP Exp RP M Statement %prec IF {
+													bp($4.trueList,$6);
+													$$.nextList = merge($4.falseList,$7.nextList);
+													
+													removeSymbolScope();													
 												}   /* if ( x == 4 ) { ...} */
-			| IF LP Exp RP M Statement ELSE N M Statement %prec ELSE 											  
+			| IF ScopeIf LP Exp RP M Statement ELSE {removeSymbolScope(); addSymbolScope();} N M Statement %prec ELSE 											  
 											 {
-											 	bp($3.trueList,$5);
-											 	bp($3.falseList,$9);
-											 	$$.nextList = merge(merge($6.nextList,$10.nextList),makeList($8));
+											 	bp($4.trueList,$6);
+											 	bp($4.falseList,$11);
+											 	$$.nextList = merge(merge($7.nextList,$12.nextList),makelist($10));
+											 	removeSymbolScope();
 											 } 											  
 			 /* if ( x == 4 ) { ...} else { ... } */ 
 			
-			| WHILE M LP Exp RP M Statement {
-												bp($7.nextList,$2);
-												bp($4.trueList,$6);
-												$$.nextList = $4.falseList;
+			| WHILE { addSymbolScope();} M LP Exp RP M Statement {
+												bp($8.nextList,$3);
+												bp($5.trueList,$7);
+												$$.nextList = $5.falseList;
 												
 												ostringstream oss;
-												oss << "goto " << $2;
+												oss << "goto " << $3;
 												emit(oss.str());
+												
+												removeSymbolScope();
 											} /* while ( x > 2 ) { ... } */
 			| N BREAK SC {
-							$$.nextList.add($1);	
+							$$.nextList.push_back($1);	
 						
 						 }  /* break; */
 			;
+
+ScopeIf:
+		/* empty */ {addSymbolScope();}
+		;
 
 CoinType	: NIS { $$ = NIS_T; } /* NIS */
 			| AGORA { $$ = AGORA_T; } /* AGORA */
@@ -175,27 +182,27 @@ Exp		: LP Exp RP {
 					
 		| Exp PLUS Exp {
 							$$.memoryOffset = getMemoryLocation();
-							emit(arithmeticOp($$,$1,$3,PLUS_A);										
+							arithmeticOpEmit($$,$1,$3,PLUS_A);										
 					   }   /* a + b */
 		| Exp MINUS Exp {										
 							$$.memoryOffset = getMemoryLocation();
-							emit(arithmeticOp($$,$1,$3,MINUS_A);							
+							arithmeticOpEmit($$,$1,$3,MINUS_A);							
 					    }   /* a - b */
 		| Exp MULT Exp  {										
 							$$.memoryOffset = getMemoryLocation();
-							emit(arithmeticOp($$,$1,$3,MUL_A);							
+							arithmeticOpEmit($$,$1,$3,MUL_A);							
 					    }    /* a * b */
 		| Exp DIV Exp   {
 							$$.memoryOffset = getMemoryLocation();
-							emit(arithmeticOp($$,$1,$3,DIV_A);		   
+							arithmeticOpEmit($$,$1,$3,DIV_A);		   
 						}     /* a / b */
 					    
 /* Type rules and var names */					    
 					    
 		| ID { 
-				$$.varTraits.idName = $1;
-				$$.memoryOffset = getSymbolOffset($1);
-				$$.varTraits.varType = getSymbolType($1);
+				$$.varTraits.idName = $1.idName;
+				$$.memoryOffset = getSymbolOffset($1.idName);
+				$$.varTraits.varType = getSymbolType($1.idName);
 				$$.isConst = false;
 			 }	      	    /* a */
 		| NUM {
@@ -208,14 +215,14 @@ Exp		: LP Exp RP {
 						}   /* 4 NIS */
 		| TRUE {
 					$$.varTraits.varType = BOOL_T;
-					$$.varTraits.numValue = 1
-					$$.trueList = makeList(next());
+					$$.varTraits.numValue = 1;
+					$$.trueList = makelist(next());
 					$$.isConst = true;
 				}	    /* True */
 		| FALSE	{
 					$$.varTraits.varType = BOOL_T;
 					$$.varTraits.numValue = 0;
-					$$.falseList = makeList(next())
+					$$.falseList = makelist(next());
 					$$.isConst = true;		
 				}	    /* False */
 		
@@ -239,9 +246,9 @@ Exp		: LP Exp RP {
 						}    /* (x > 4) && (x < 5) */
 		| Exp Rel Exp %prec SE 
 							{
-								$$.trueList = makeList(next());
+								$$.trueList = makelist(next());
 								emitRelOperation($1,$3,$2);
-								$$.falseList = makeList(next());
+								$$.falseList = makelist(next());
 								EMIT_GOTO;  
 							}    /* x < 4 */
 		;
@@ -267,7 +274,10 @@ N		:
 
 int main()
 {
+	memoryS = 0;
+	addSymbolScope();
 	yyparse();
+	removeSymbolScope();
 }
 
 int yyerror(char* message)
@@ -283,6 +293,7 @@ int getMemoryLocation()
 void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, ArithmeticOp op )
 {
 	string ope;
+	ostringstream oss;
 	if (op == PLUS_A)
 		ope = "+";
 	else if (op == MINUS_A)
@@ -328,14 +339,7 @@ void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, Arithme
 		emit(oss2.str());
 	}
 	
-	if (tmpIsConst)
-		oss << tmp;
-	else
-		oss << "s[" << tmp << "]";		
-		
-	tmpl = getMemoryLocation();		
-	ostringstream oss;
-	oss << "s[" << tmpl << "]=";
+	int tmpl = getMemoryLocation();
 	
 	if (tmpIsConst)
 		oss << tmp;
@@ -345,16 +349,16 @@ void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, Arithme
 	oss << ope; 
 	
 	if (exp2.isConst)
-		oss << exp2.numValue;
+		oss << exp2.varTraits.numValue;
 	else
-		oss << "s[" << exp2.memoryLocation << "]";
+		oss << "s[" << exp2.memoryOffset << "]";
 		
 	emit(oss.str());
 /*==*/	
 	if (exp1.varTraits.varType == NIS_T && lval.varTraits.varType == AGORA_T)
 	{
 		ostringstream oss2;
-		oss2 << "s[" << lval.memoryLocation << "]=" << 100 << "*" << "s[" tmpl << "]"; 
+		oss2 << "s[" << lval.memoryOffset << "]=" << 100 << "*" << "s[" << tmpl << "]"; 
 		emit(oss2.str());
 		return;
 	}
@@ -362,7 +366,7 @@ void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, Arithme
 	if (exp1.varTraits.varType == AGORA_T && lval.varTraits.varType == NIS_T)
 	{
 		ostringstream oss2;
-		oss2 << "s[" << lval.memoryLocation << "]=s[" tmpl << "]" << "/100";
+		oss2 << "s[" << lval.memoryOffset << "]=s[" << tmpl << "]" << "/100";
 		emit(oss2.str());
 		return; 
 	}	  	
@@ -471,3 +475,15 @@ void emitRelOperation(ExpTraits& exp1, ExpTraits& exp2, RelOp relOp)
 	}
 		
 }
+
+string getExpRep(ExpTraits& expR)
+{
+	ostringstream oss;
+	if (expR.isConst)
+		oss << expR.varTraits.numValue;
+	else
+		oss << "s[" << expR.memoryOffset << "]";
+		
+	return oss.str();
+}
+

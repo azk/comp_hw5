@@ -1,8 +1,10 @@
 %{
-    #include "coins.tab.hpp"
+    
     #include "shared.h"
+    #include "coins.tab.hpp"   
     
     #include <stdlib.h>
+    
 %}
 %option noyywrap
 %option yylineno
@@ -42,9 +44,9 @@ whitespace	([\t\n ])
 "break"	return BREAK;
 "not"	return NOT;
 "bool"	return BOOL;
-[a-zA-Z]+      { yylval.idName = yytext; return ID;}
-\"[^"]*\"      	{ yylval = yytext; return STRING;}
-([1-9][0-9]*)|0	{ yylval  = atoi(yytext) ; return NUM;}
+[a-zA-Z]+      { yylval.varTraits.idName = yytext; return ID;}
+\"[^"]*\"      	{ yylval.stringValue = yytext; return STRING;}
+([1-9][0-9]*)|0	{ yylval.numValue  = atoi(yytext) ; return NUM;}
 {whitespace}	;
 "//"[^\n]*\n	; // Comments
 .				;

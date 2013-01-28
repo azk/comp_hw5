@@ -46,7 +46,7 @@ typedef	struct
 	bool isConst;
 } ExpTraits;
 
-typedef union
+typedef struct
 {
 	struct
 	{
@@ -69,6 +69,6 @@ typedef union
 	RelOp relOp;
 } STYPE;
 
-#define YYTYPE STYPE
+#define YYSTYPE STYPE
 
 #endif /* SHARED_H_ */
