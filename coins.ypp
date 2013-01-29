@@ -37,7 +37,7 @@
     void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, ArithmeticOp op );
     void emitRelOperation(ExpTraits& exp1, ExpTraits& exp2, RelOp relOp);
     string getExpRep(ExpTraits& expR);
-        
+	int convertIfNeeded(Type toType,ExpTraits& fromExp);        
     int getMemoryLocation();
 %}
 
@@ -213,6 +213,7 @@ Exp		: LP Exp RP {
 		| NUM CoinType {
 							$$.varTraits.numValue = $1;
 							$$.varTraits.varType = $2;
+							$$.isConst = true;
 						}   /* 4 NIS */
 		| TRUE {
 					$$.varTraits.varType = BOOL_T;
@@ -306,74 +307,43 @@ void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, Arithme
 	else
 		ope = "/";
 		
-	int tmp;
+	Type opType = lval.varTraits.varType;
+
+	int exp2NewMem = convertIfNeeded(exp1.varTraits.varType,exp2);
+	int newRvalLocation = getMemoryLocation();
 	
-	bool tmpIsConst = exp1.isConst;
-	if (tmpIsConst)
-		tmp = exp1.varTraits.numValue;
-	else
-		tmp = exp1.memoryOffset; 
-			
-	if (exp1.varTraits.varType == NIS_T && exp2.varTraits.varType == AGORA_T)
-	{
-		ostringstream oss2;
-		tmp = getMemoryLocation();
-		oss2 << "s[" << tmp << "]=" << 100 << "*"; 
-		
-		if (tmpIsConst)
-			oss2 << tmp;
-		else
-			oss2 << "s[" << tmp << "]"; 
-		emit(oss2.str());
-	}
-	
-	if (exp1.varTraits.varType == AGORA_T && exp2.varTraits.varType == NIS_T)
-	{
-		ostringstream oss2;
-		tmp = getMemoryLocation();
-		oss2 << "s[" << tmp << "]="; 
-		
-		if (tmpIsConst)
-			oss2 << tmp;
-		else
-			oss2 << "s[" << tmp << "]";
-			
-		 oss2 <<  "/" << 100;			 
-		emit(oss2.str());
-	}
-	
-	int tmpl = getMemoryLocation();
-	
-	if (tmpIsConst)
-		oss << tmp;
-	else
-		oss << "s[" << tmp << "]";
-	
-	oss << ope; 
-	
-	if (exp2.isConst)
-		oss << exp2.varTraits.numValue;
-	else
-		oss << "s[" << exp2.memoryOffset << "]";
-		
+	oss << "s[" << newRvalLocation << "]=" << getExpRep(exp1) << ope << "s[" << exp2NewMem << "]";
 	emit(oss.str());
-/*==*/	
-	if (exp1.varTraits.varType == NIS_T && lval.varTraits.varType == AGORA_T)
+	
+	ExpTraits temp;
+	temp.varTraits.varType = exp1.varTraits.varType;
+	temp.isConst = false;
+	temp.memoryOffset = newRvalLocation;
+	
+	convertIfNeeded(opType,temp);
+
+	return;
+}
+
+int convertIfNeeded(Type toType,ExpTraits& fromExp)
+{
+	int newLocation = getMemoryLocation();
+	ostringstream oss;
+	Type originType = fromExp.varTraits.varType;
+	
+	oss << "s[" << newLocation << "]=" << getExpRep(fromExp);
+	
+	if (fromExp.varTraits.varType != toType)
 	{
-		ostringstream oss2;
-		oss2 << "s[" << lval.memoryOffset << "]=" << 100 << "*" << "s[" << tmpl << "]"; 
-		emit(oss2.str());
-		return;
+		if (toType == NIS_T && originType == AGORA_T)
+			oss << "/100";
+		else if (toType == AGORA_T && originType == NIS_T)
+			oss << "*100";
 	}
 	
-	if (exp1.varTraits.varType == AGORA_T && lval.varTraits.varType == NIS_T)
-	{
-		ostringstream oss2;
-		oss2 << "s[" << lval.memoryOffset << "]=s[" << tmpl << "]" << "/100";
-		emit(oss2.str());
-		return; 
-	}	  	
-	return;
+	emit(oss.str());
+	return newLocation;
+	
 }
 
 void emitRelOperation(ExpTraits& exp1, ExpTraits& exp2, RelOp relOp)
