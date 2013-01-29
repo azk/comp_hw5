@@ -88,8 +88,8 @@
 
 S	: Statements {}
 	;
-Statements	: Statements Statement {}
-			| Statement {}
+Statements	: Statements Statement {bp($2.nextList,next());bp($1.nextList,next());}
+			| Statement {bp($1.nextList,next());}
 			;
 			
 Statement	: LC {addSymbolScope();} Statements RC {
@@ -146,6 +146,7 @@ Statement	: LC {addSymbolScope();} Statements RC {
 			 /* if ( x == 4 ) { ...} else { ... } */ 
 			
 			| WHILE { addSymbolScope();} M LP Exp RP M Statement {
+												
 												bp($8.nextList,$3);
 												bp($5.trueList,$7);
 												$$.nextList = $5.falseList;
@@ -205,6 +206,11 @@ Exp		: LP Exp RP {
 				$$.memoryOffset = getSymbolOffset($1.idName);
 				$$.varTraits.varType = getSymbolType($1.idName);
 				$$.isConst = false;
+				if (getSymbolType($1.idName) == BOOL_T)
+				{
+					//$$.trueList = makelist(next());
+				}
+				
 			 }	      	    /* a */
 		| NUM {
 				$$.varTraits.numValue = $1;
@@ -251,7 +257,9 @@ Exp		: LP Exp RP {
 								$$.trueList = makelist(next());
 								emitRelOperation($1,$3,$2);
 								$$.falseList = makelist(next());
-								EMIT_GOTO;  
+								EMIT_GOTO; 
+								
+								$$.varTraits.varType = BOOL_T; 
 							}    /* x < 4 */
 		;
 
@@ -320,7 +328,11 @@ void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, Arithme
 	temp.isConst = false;
 	temp.memoryOffset = newRvalLocation;
 	
-	convertIfNeeded(opType,temp);
+	int finalRval = convertIfNeeded(opType,temp);
+	
+	stringstream oss2;
+	oss2 << getExpRep(lval) << "=s[" << finalRval << "]";
+	emit(oss2.str());                         
 
 	return;
 }
