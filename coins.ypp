@@ -20,6 +20,8 @@
     extern char* yytext;
     
     int yyerror(char* message);
+    
+    list<int> breakList;
        
     //static vector<int> memoryS;
     static int memoryS;
@@ -84,14 +86,20 @@
 
 %%
 
-S	: Statements {}
+S	: Statements {bp($1.nextList,next());}
 	;
-Statements	: Statements Statement {bp($2.nextList,next());bp($1.nextList,next());}
-			| Statement {bp($1.nextList,next());}
+Statements	: Statements M Statement {
+										bp($1.nextList,$2);
+										$$.nextList = $3.nextList;										
+ 									 }
+			| Statement {$$.nextList = $1.nextList;}
 			;
 			
 Statement	: LC {addSymbolScope();} Statements RC {
 									$$.nextList = $3.nextList;
+									
+									
+									
 									removeSymbolScope();
 								}	/* { ... } */
 			| Type ID SC {							
@@ -101,20 +109,60 @@ Statement	: LC {addSymbolScope();} Statements RC {
 			| Type ID ASSIGN Exp SC {
 										int offset = addToSymbolTable($2.idName,$1,getMemoryLocation());					
 										ostringstream oss;
-										oss << "s[" << offset << "]=" << getExpRep($4); 
-										emit(oss.str());
+										oss << "s[" << offset << "]=";
+										if ($4.varTraits.varType != BOOL_T)
+										{										
+											
+								 			int newMem = convertIfNeeded($1,$4);
+								 			oss << "s[" << newMem << "]";
+											emit(oss.str());
+										}
+										else
+										{
+											oss << 0;
+											
+											bp($4.falseList,next());
+											emit(oss.str());
+											
+											ostringstream oss2;
+											oss2 << "goto " << next()+2;
+											emit(oss2.str());
+											
+											ostringstream oss3;
+											oss3 << "s[" << offset << "]=1";
+											bp($4.trueList,next());
+											emit(oss3.str());
+											
+											
+										}										 
+						
 									} /* int x = a+b; */
 			| ID ASSIGN Exp SC { 
 									int offset = getSymbolOffset($1.idName);
 									ostringstream oss;
+									oss << "s[" << offset << "]=";
 									if ($3.varTraits.varType != BOOL_T)
 									{										
-										oss << "s[" << offset << "]=";
-							 			oss << getExpRep($3);
+							 			int newMem = convertIfNeeded(getSymbolType($1.idName),$3);
+							 			oss << "s[" << newMem << "]";																	 	
 										emit(oss.str());
 									}
 									else
 									{
+										oss << 0;
+										
+										bp($3.falseList,next());
+										emit(oss.str());
+										
+										ostringstream oss2;
+										oss2 << "goto " << next()+2;
+										emit(oss2.str());
+										
+										ostringstream oss3;
+										oss3 << "s[" << offset << "]=1";
+										bp($3.trueList,next());
+										emit(oss3.str());
+										
 										
 									}								
 								}	   /* x = a+b; */
@@ -154,7 +202,8 @@ Statement	: LC {addSymbolScope();} Statements RC {
 												
 												bp($8.nextList,$3);
 												bp($5.trueList,$7);
-												$$.nextList = $5.falseList;
+												$$.nextList = merge($5.falseList,breakList);
+												breakList = list<int>();
 												
 												ostringstream oss;
 												oss << "goto " << $3;
@@ -163,7 +212,7 @@ Statement	: LC {addSymbolScope();} Statements RC {
 												removeSymbolScope();
 											} /* while ( x > 2 ) { ... } */
 			| N BREAK SC {
-							$$.nextList.push_back($1);	
+							breakList.push_back($1);
 						
 						 }  /* break; */
 			;
@@ -184,6 +233,8 @@ Type		: CoinType { $$ = $1; } 	    /* NIS */
 
 Exp		: LP Exp RP {
 						$$ = $2;
+						/*$$.trueList = $2.trueList;
+						$$.falseList = $2.falseList;*/
 					} 	    /* ( x < 4 ) */
 
 /* Arithmetic Rules */					
@@ -216,7 +267,7 @@ Exp		: LP Exp RP {
 				{
 					$$.trueList = makelist(next());
 					ostringstream oss;
-					oss << "if s[" << $$.memoryOffset << "] == 1 goto ";
+					oss << "if s[" << $$.memoryOffset << "]==1 goto ";
 					emit(oss.str()); 
 				}
 				
@@ -235,12 +286,14 @@ Exp		: LP Exp RP {
 					$$.varTraits.numValue = 1;
 					$$.trueList = makelist(next());
 					$$.isConst = true;
+					EMIT_GOTO;
 				}	    /* True */
 		| FALSE	{
 					$$.varTraits.varType = BOOL_T;
 					$$.varTraits.numValue = 0;
 					$$.falseList = makelist(next());
-					$$.isConst = true;		
+					$$.isConst = true;
+					EMIT_GOTO;		
 				}	    /* False */
 		
 /* Boolean rules */
@@ -295,7 +348,6 @@ int main()
 {
 	memoryS = 0;
 	addSymbolScope();
-	boolExpression = false;
 	yyparse();
 	removeSymbolScope();
 	
@@ -325,7 +377,8 @@ void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, Arithme
 	else
 		ope = "/";
 		
-	Type opType = lval.varTraits.varType;
+	Type opType = exp1.varTraits.varType;
+	lval.varTraits.varType = opType;
 
 	int exp2NewMem = convertIfNeeded(exp1.varTraits.varType,exp2);
 	int newRvalLocation = getMemoryLocation();
@@ -340,9 +393,12 @@ void arithmeticOpEmit(ExpTraits& lval, ExpTraits& exp1, ExpTraits& exp2, Arithme
 	
 	int finalRval = convertIfNeeded(opType,temp);
 	
-	stringstream oss2;
-	oss2 << getExpRep(lval) << "=s[" << finalRval << "]";
-	emit(oss2.str());                         
+	/*stringstream oss2;
+	oss2 << "==" << getExpRep(lval) << "=s[" << finalRval << "]";
+	emit(oss2.str());*/
+	
+	lval.isConst = false;
+	lval.memoryOffset = finalRval;                         
 
 	return;
 }
@@ -363,7 +419,7 @@ int convertIfNeeded(Type toType,ExpTraits& fromExp)
 			oss << "*100";
 	}
 	
-	emit(oss.str());
+	emit(oss.str());	
 	return newLocation;
 	
 }
@@ -374,46 +430,32 @@ void emitRelOperation(ExpTraits& lVal,ExpTraits& exp1, ExpTraits& exp2, RelOp re
 	oss << "if ";
 	bool isTwoTime = false;
 
-	int tmp;
+	int tmp,tmpl;
 	
 	bool tmpIsConst = exp1.isConst;
 	if (tmpIsConst)
-		tmp = exp1.varTraits.numValue;
+		tmpl = exp1.varTraits.numValue;
 	else
-		tmp = exp1.memoryOffset; 
+		tmpl = exp1.memoryOffset; 
 			
+	tmp = getMemoryLocation();
+	ostringstream oss2;
+	oss2 << "s[" << tmp << "]=";
+	if (tmpIsConst)
+			oss2 << tmpl;
+	else
+			oss2 << "s[" << tmpl << "]"; 			
+
 	if (exp1.varTraits.varType == NIS_T && exp2.varTraits.varType == AGORA_T)
 	{
-		ostringstream oss2;
-		tmp = getMemoryLocation();
-		oss2 << "s[" << tmp << "]=" << 100 << "*"; 
-		
-		if (tmpIsConst)
-			oss2 << tmp;
-		else
-			oss2 << "s[" << tmp << "]"; 
-		emit(oss2.str());
+		oss2 << "*" << 100; 
 	}
-	
-	if (exp1.varTraits.varType == AGORA_T && exp2.varTraits.varType == NIS_T)
-	{
-		ostringstream oss2;
-		tmp = getMemoryLocation();
-		oss2 << "s[" << tmp << "]="; 
-		
-		if (tmpIsConst)
-			oss2 << tmp;
-		else
-			oss2 << "s[" << tmp << "]";
-			
+	else if (exp1.varTraits.varType == AGORA_T && exp2.varTraits.varType == NIS_T)
+	{	
 		oss2 <<  "/100"; 
-		emit(oss2.str());
 	}
-	
-	if (tmpIsConst)
-		oss << tmp;
-	else
-		oss << "s[" << tmp << "]";
+	emit(oss2.str());
+	oss << "s[" << tmp << "]";
 		 
 	switch (relOp)
 	{
@@ -458,12 +500,9 @@ void emitRelOperation(ExpTraits& lVal,ExpTraits& exp1, ExpTraits& exp2, RelOp re
 		ostringstream oss3;
 		
 		oss3 << "if ";
-		if (tmpIsConst)
-			oss3 << tmp;
-		else
-			oss3 << "s[" << tmp << "]";
+		oss3 << "s[" << tmp << "]";
 		
-		oss << "==";
+		oss3 << "==";
 		if (exp2.isConst)
 			oss3 << exp2.varTraits.numValue;
 		else

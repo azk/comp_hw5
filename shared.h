@@ -13,8 +13,9 @@
 
 typedef enum
 {
-	BOOL_T,
+
 	INT_T,
+	BOOL_T,
 	NIS_T,
 	AGORA_T
 } Type;
@@ -58,6 +59,7 @@ typedef struct
 	struct
 	{
 		std::list<int> nextList;
+
 	} statementList;
 
 	Type typeTrait;
