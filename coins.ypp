@@ -22,6 +22,7 @@
     int yyerror(char* message);
     
     list<int> breakList;
+    list<int> breakStack;
        
     //static vector<int> memoryS;
     static int memoryS;
@@ -82,6 +83,7 @@
 %type<statementList> S
 %type<bufferLocation> M
 %type<bufferLocation> N
+%type<bufferLocation> R
 %type<relOp> Rel
 
 %%
@@ -198,8 +200,14 @@ Statement	: LC {addSymbolScope();} Statements RC {
 											 } 											  
 			 /* if ( x == 4 ) { ...} else { ... } */ 
 			
-			| WHILE { addSymbolScope();} M LP Exp RP M Statement {
+			| WHILE { addSymbolScope();} R LP Exp RP M Statement {
 												
+												while (breakStack.back() != -1)
+												{
+													int bk = breakStack.back();
+													breakStack.pop_back();
+													breakList.push_back(bk);
+												}
 												bp($8.nextList,$3);
 												bp($5.trueList,$7);
 												$$.nextList = merge($5.falseList,breakList);
@@ -211,11 +219,19 @@ Statement	: LC {addSymbolScope();} Statements RC {
 												
 												removeSymbolScope();
 											} /* while ( x > 2 ) { ... } */
-			| N BREAK SC {
-							breakList.push_back($1);
+			| BREAK SC {
+							breakStack.push_back(next());
+							EMIT_GOTO;
 						
 						 }  /* break; */
 			;
+
+R:
+	/* empty */ {
+					breakStack.push_back(-1);
+					$$ = next();
+				}
+				;
 
 ScopeIf:
 		/* empty */ {addSymbolScope();}
@@ -233,8 +249,8 @@ Type		: CoinType { $$ = $1; } 	    /* NIS */
 
 Exp		: LP Exp RP {
 						$$ = $2;
-						/*$$.trueList = $2.trueList;
-						$$.falseList = $2.falseList;*/
+						$$.trueList = $2.trueList;
+						$$.falseList = $2.falseList;
 					} 	    /* ( x < 4 ) */
 
 /* Arithmetic Rules */					
@@ -269,6 +285,10 @@ Exp		: LP Exp RP {
 					ostringstream oss;
 					oss << "if s[" << $$.memoryOffset << "]==1 goto ";
 					emit(oss.str()); 
+					$$.falseList = makelist(next());
+					ostringstream oss2;
+					oss2 << "if s[" << $$.memoryOffset << "]==0 goto ";
+					emit(oss2.str());
 				}
 				
 			 }	      	    /* a */
